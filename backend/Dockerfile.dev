@@ -1,0 +1,27 @@
+# Development Dockerfile with hot-reloading
+FROM node:18-alpine
+
+# Install development tools
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install all dependencies (including devDependencies)
+RUN npm install
+
+# Copy source code (will be overridden by volume mount in development)
+COPY src ./src
+
+# Expose backend port
+EXPOSE 3847
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3847/api/health || exit 1
+
+# Start with hot-reloading using tsx watch
+CMD ["npm", "run", "dev"]

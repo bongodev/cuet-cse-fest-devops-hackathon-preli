@@ -1,6 +1,126 @@
-# services:
-  # backend:
+# Load environment variables from parent directory
+# Run: docker compose -f docker/compose.production.yaml --env-file .env up --build
+services:
+  # MongoDB Database Service
+  mongo:
+    image: mongo:7-jammy
+    container_name: ecommerce-mongo-prod
+    restart: always
+    networks:
+      - app-network
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      # Named volume for data persistence
+      - mongo-data-prod:/data/db
+      # Configuration persistence
+      - mongo-config-prod:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # MongoDB is NOT exposed to host for security
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # gateway:
+  # Backend Service
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ecommerce-backend-prod
+    restart: always
+    networks:
+      - app-network
+    environment:
+      NODE_ENV: production
+      BACKEND_PORT: ${BACKEND_PORT:-3847}
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DATABASE: ${MONGO_DATABASE}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3847/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Backend is NOT exposed to host for security
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # mongo:
+  # Gateway Service (API Gateway/Reverse Proxy)
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: ecommerce-gateway-prod
+    restart: always
+    networks:
+      - app-network
+    environment:
+      NODE_ENV: production
+      GATEWAY_PORT: ${GATEWAY_PORT:-5921}
+      BACKEND_URL: http://backend:3847
+    ports:
+      # ONLY the gateway is exposed to the host
+      - "${GATEWAY_PORT:-5921}:5921"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5921/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  app-network:
+    driver: bridge
+    name: ecommerce-network-prod
+
+volumes:
+  mongo-data-prod:
+    name: ecommerce-mongo-data-prod
+  mongo-config-prod:
+    name: ecommerce-mongo-config-prod
