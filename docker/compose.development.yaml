@@ -1,6 +1,105 @@
-# services:
-  # backend:
+# Load environment variables from parent directory
+# Run: docker compose -f docker/compose.development.yaml --env-file .env up --build
+services:
+  # MongoDB Database Service
+  mongo:
+    image: mongo:7-jammy
+    container_name: ecommerce-mongo-dev
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      # Named volume for data persistence
+      - mongo-data-dev:/data/db
+      # Configuration persistence
+      - mongo-config-dev:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # MongoDB should NOT be exposed to host in production-like setup
+    # Uncomment below ONLY for debugging
+    # ports:
+    #   - "27017:27017"
 
-  # gateway:
+  # Backend Service
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    container_name: ecommerce-backend-dev
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      NODE_ENV: development
+      BACKEND_PORT: ${BACKEND_PORT:-3847}
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DATABASE: ${MONGO_DATABASE}
+    volumes:
+      # Mount source code for hot-reloading
+      - ../backend/src:/app/src:ro
+      # Mount tsconfig for TypeScript
+      - ../backend/tsconfig.json:/app/tsconfig.json:ro
+      # Prevent node_modules from being overridden
+      - /app/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3847/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # Backend should NOT be exposed to host
+    # Uncomment below ONLY for direct debugging
+    # ports:
+    #   - "3847:3847"
 
-  # mongo:
+  # Gateway Service (API Gateway/Reverse Proxy)
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile.dev
+    container_name: ecommerce-gateway-dev
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      NODE_ENV: development
+      GATEWAY_PORT: ${GATEWAY_PORT:-5921}
+      BACKEND_URL: http://backend:3847
+    volumes:
+      # Mount source code for hot-reloading
+      - ../gateway/src:/app/src:ro
+      # Prevent node_modules from being overridden
+      - /app/node_modules
+    ports:
+      # ONLY the gateway is exposed to the host
+      - "${GATEWAY_PORT:-5921}:5921"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5921/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  app-network:
+    driver: bridge
+    name: ecommerce-network-dev
+
+volumes:
+  mongo-data-dev:
+    name: ecommerce-mongo-data-dev
+  mongo-config-dev:
+    name: ecommerce-mongo-config-dev

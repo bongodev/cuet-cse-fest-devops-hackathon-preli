@@ -1,0 +1,26 @@
+# Development Dockerfile for Gateway with hot-reloading
+FROM node:18-alpine
+
+# Install development tools
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including devDependencies)
+RUN npm install
+
+# Copy source code (will be overridden by volume mount in development)
+COPY src ./src
+
+# Expose gateway port
+EXPOSE 5921
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:5921/health || exit 1
+
+# Start with hot-reloading using nodemon
+CMD ["npm", "run", "dev"]
