@@ -7,9 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: backend
     environment:
-      # Fix: Pass the specific variable name the app expects
       - BACKEND_PORT=${BACKEND_PORT}
-      # Keep PORT just in case
       - PORT=${BACKEND_PORT}
       - MONGO_URI=${MONGO_URI}
       - NODE_ENV=${NODE_ENV}
@@ -26,9 +24,7 @@ services:
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_PORT}"
     environment:
-      # Fix: Pass the specific variable name the app expects
       - GATEWAY_PORT=${GATEWAY_PORT}
-      # Keep PORT just in case
       - PORT=${GATEWAY_PORT}
       - BACKEND_URL=http://backend:${BACKEND_PORT}
       - NODE_ENV=${NODE_ENV}
