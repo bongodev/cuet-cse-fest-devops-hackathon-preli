@@ -1,6 +1,118 @@
-# services:
-  # backend:
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:7.0
+    container_name: ecommerce-mongo-prod
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE}
+    volumes:
+      - mongo-data-prod:/data/db
+      - mongo-config-prod:/data/configdb
+    networks:
+      - ecommerce-network
+    # MongoDB is NOT exposed to the host for security
+    # Access via backend service only
+    command: ["--auth"]
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
-  # gateway:
+  # Backend Service
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ecommerce-backend-prod
+    restart: always
+    environment:
+      - BACKEND_PORT=${BACKEND_PORT}
+      - MONGO_URI=${MONGO_URI}
+      - MONGO_DATABASE=${MONGO_DATABASE}
+      - NODE_ENV=production
+    networks:
+      - ecommerce-network
+    depends_on:
+      mongo:
+        condition: service_healthy
+    # Backend is NOT exposed to host - only accessible via gateway
+    # This ensures the backend is only accessible through the gateway
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3847/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
 
-  # mongo:
+  # Gateway Service
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: ecommerce-gateway-prod
+    restart: always
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT}
+      - BACKEND_URL=${BACKEND_URL}
+      - NODE_ENV=production
+    ports:
+      # ONLY the gateway is exposed to the host
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    networks:
+      - ecommerce-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5921/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+networks:
+  ecommerce-network:
+    driver: bridge
+    name: ecommerce-prod-network
+    # Internal network - no external access except through gateway
+    internal: false
+
+volumes:
+  # Named volumes for data persistence
+  mongo-data-prod:
+    name: ecommerce-mongo-data-prod
+  mongo-config-prod:
+    name: ecommerce-mongo-config-prod

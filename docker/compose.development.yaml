@@ -1,6 +1,101 @@
-# services:
-  # backend:
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:7.0
+    container_name: ecommerce-mongo-dev
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE}
+    volumes:
+      - mongo-data-dev:/data/db
+      - mongo-config-dev:/data/configdb
+    networks:
+      - ecommerce-network
+    # MongoDB is NOT exposed to the host in development for security
+    # Access it via mongo-shell or backend service only
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # gateway:
+  # Backend Service
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    container_name: ecommerce-backend-dev
+    restart: unless-stopped
+    environment:
+      - BACKEND_PORT=${BACKEND_PORT}
+      - MONGO_URI=${MONGO_URI}
+      - MONGO_DATABASE=${MONGO_DATABASE}
+      - NODE_ENV=development
+    volumes:
+      # Mount source code for hot-reload
+      - ../backend/src:/app/src
+      - ../backend/package.json:/app/package.json
+      - backend-node-modules:/app/node_modules
+    networks:
+      - ecommerce-network
+    depends_on:
+      mongo:
+        condition: service_healthy
+    # Backend is NOT exposed to host - only accessible via gateway
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3847/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # mongo:
+  # Gateway Service
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile.dev
+    container_name: ecommerce-gateway-dev
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT}
+      - BACKEND_URL=${BACKEND_URL}
+      - NODE_ENV=development
+    ports:
+      # ONLY the gateway is exposed to the host
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    volumes:
+      # Mount source code for hot-reload
+      - ../gateway/src:/app/src
+      - ../gateway/package.json:/app/package.json
+      - gateway-node-modules:/app/node_modules
+    networks:
+      - ecommerce-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5921/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  ecommerce-network:
+    driver: bridge
+    name: ecommerce-dev-network
+
+volumes:
+  # Named volumes for data persistence
+  mongo-data-dev:
+    name: ecommerce-mongo-data-dev
+  mongo-config-dev:
+    name: ecommerce-mongo-config-dev
+  # Anonymous volumes for node_modules (prevent host sync)
+  backend-node-modules:
+    name: ecommerce-backend-node-modules-dev
+  gateway-node-modules:
+    name: ecommerce-gateway-node-modules-dev
