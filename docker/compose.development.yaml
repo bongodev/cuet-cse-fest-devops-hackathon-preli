@@ -1,6 +1,46 @@
-# services:
-  # backend:
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: hackathon-mongodb-dev
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: 1234
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data_dev:/data/db
+    networks:
+      - backend-network-dev
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  # gateway:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    container_name: hackathon-backend-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      MONGO_URI: mongodb://admin:1234@mongodb:27017/productsdb?authSource=admin
+      MONGO_DATABASE: productsdb
+      PORT: 3847
+    ports:
+      - "3847:3847"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - backend-network-dev
 
-  # mongo:
+networks:
+  backend-network-dev:
+    driver: bridge
+
+volumes:
+  mongodb_data_dev:
+    driver: local
